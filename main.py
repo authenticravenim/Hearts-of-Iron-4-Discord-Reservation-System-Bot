@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands, tasks
 import json
 import os
+import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -12,11 +13,11 @@ from zoneinfo import ZoneInfo
 COUNTRY_FILE = "reservation_countries.json"
 RESERVATION_FILE = "reservations.json"
 CONFIG_FILE = "config.json"
+ALL_TAGS_FILE = "all_tags.json"  # extra HOI4 names (democratic / neutral)
 
 # IMPORTANT: Replace these with your real IDs
 CHANNEL_ID = 1440130973650915378  # Reservation channel
 LOG_CHANNEL_ID = 1440253011678199882  # Optional log channel (0 = disabled)
-
 
 # Discord intents
 intents = discord.Intents.default()
@@ -81,33 +82,151 @@ def load_json(fp, default):
     - If file does not exist OR is empty OR invalid JSON -> write default and return it.
     """
     if not os.path.exists(fp) or os.path.getsize(fp) == 0:
-        with open(fp, "w") as f:
-            json.dump(default, f, indent=4)
+        with open(fp, "w", encoding="utf-8") as f:
+            json.dump(default, f, indent=4, ensure_ascii=False)
         return default
 
     try:
-        with open(fp, "r") as f:
+        with open(fp, "r", encoding="utf-8") as f:
             return json.load(f)
     except json.JSONDecodeError:
         # Repair broken/blank JSON file
-        with open(fp, "w") as f:
-            json.dump(default, f, indent=4)
+        with open(fp, "w", encoding="utf-8") as f:
+            json.dump(default, f, indent=4, ensure_ascii=False)
         return default
 
 
 reservations = load_json(RESERVATION_FILE, {})
 config = load_json(CONFIG_FILE, {})
 countries = load_json(COUNTRY_FILE, {})
-
+all_tags = load_json(ALL_TAGS_FILE, {})
 
 def save_reservations():
-    with open(RESERVATION_FILE, "w") as f:
-        json.dump(reservations, f, indent=4)
+    with open(RESERVATION_FILE, "w", encoding="utf-8") as f:
+        json.dump(reservations, f, indent=4, ensure_ascii=False)
 
 
 def save_config():
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=4)
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
+
+# -------------------------
+# NAME RESOLUTION INDEX
+# -------------------------
+
+# name_index: normalized name string -> set of tags
+name_index = {}
+
+def _normalize_name(s: str) -> str:
+    # Lowercase, strip, collapse spaces
+    s = s.strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+def _add_name_for_tag(tag: str, name: str):
+    """Add a single display name into the name_index for a given tag."""
+    global name_index
+    if not name:
+        return
+    norm = _normalize_name(name)
+    if not norm:
+        return
+    if norm not in name_index:
+        name_index[norm] = set()
+    name_index[norm].add(tag)
+
+def build_name_index():
+    """
+    Build reverse lookup from names -> tags using:
+    - reservation_countries.json (display names)
+    - all_tags.json (democratic + neutral names)
+    """
+    global name_index
+    name_index = {}
+
+    # Base display names
+    for tag, data in countries.items():
+        base_name = data.get("name", "")
+        _add_name_for_tag(tag, base_name)
+
+    # Extra HOI4 names (democratic / neutral) – only for tags we actually use
+    for tag, data in all_tags.items():
+        if tag not in countries:
+            continue
+        demo = data.get("democratic", "")
+        neut = data.get("neutral", "")
+        _add_name_for_tag(tag, demo)
+        _add_name_for_tag(tag, neut)
+
+    # Optional: some simple short aliases (like "uk" for ENG, "usa" for USA)
+    # You can extend this dictionary as needed.
+    aliases = {
+        "uk": "ENG",
+        "britain": "ENG",
+        "great britain": "ENG",
+        "england": "ENG",
+
+        "usa": "USA",
+        "united states": "USA",
+        "united states of america": "USA",
+    }
+    for alias_name, alias_tag in aliases.items():
+        if alias_tag in countries:
+            _add_name_for_tag(alias_tag, alias_name)
+
+build_name_index()
+
+def resolve_country_input(user_input: str):
+    """
+    Resolve user input (tag / name / partial) into a tag.
+
+    Returns:
+        (tag, error_type, extra)
+
+        tag: str or None
+        error_type: None | "not_found" | "ambiguous"
+        extra: list of suggestion tags (for ambiguous) or None
+    """
+    if not user_input or not user_input.strip():
+        return None, "not_found", None
+
+    raw = user_input.strip()
+    candidate_tag = raw.upper()
+
+    # Exact TAG match
+    if candidate_tag in countries:
+        return candidate_tag, None, None
+
+    # Normalized text match
+    norm = _normalize_name(raw)
+
+    # Exact name match
+    if norm in name_index:
+        tags = list(name_index[norm])
+        if len(tags) == 1:
+            return tags[0], None, None
+        else:
+            # Multiple tags share that name string
+            return None, "ambiguous", tags
+
+    # Partial (substring) search – Option D:
+    # collect tags where the name contains the input as substring.
+    possible_tags = set()
+    for name_str, tags_set in name_index.items():
+        if norm in name_str:
+            possible_tags.update(tags_set)
+
+    if len(possible_tags) == 1:
+        return next(iter(possible_tags)), None, None
+    elif len(possible_tags) > 1:
+        return None, "ambiguous", sorted(possible_tags)
+    else:
+        return None, "not_found", None
+
+def pretty_country(tag: str) -> str:
+    data = countries.get(tag, {})
+    name = data.get("name", tag)
+    return f"{tag} — {name}"
 
 # -------------------------
 # LOGGING FUNCTION
@@ -145,9 +264,10 @@ def build_reservation_embed():
         description=(
             f"{status_text}\n\n"
             "**📘 User Commands:**\n"
-            "• **RESERVE <TAG>** — Claim a country\n"
-            "• **RELEASE <TAG>** — Free your country\n"
-            "• Example: `RESERVE GER`\n\n"
+            "• **RESERVE <TAG or NAME>** — Claim a country\n"
+            "• **RELEASE <TAG or NAME>** — Free your country\n"
+            "• Example: `RESERVE GER`, `RESERVE Hungary`\n"
+            "• In this channel you can also just type the country name or tag (e.g. `Hungary`, `HUN`).\n\n"
             "**⚙️ Admin Commands (summary):**\n"
             "• `!setreset HH:MM TZZ` — Set daily reset time (e.g. `!setreset 21:00 EST`)\n"
             "• `!timezones` — Show supported timezone codes\n\n"
@@ -288,103 +408,164 @@ async def before_reset_watcher():
     await bot.wait_until_ready()
 
 # -------------------------
+# RESERVATION HELPERS
+# -------------------------
+
+async def handle_reserve_request(message: discord.Message, country_text: str):
+    """Core logic for reserving a country."""
+    tag, err_type, extra = resolve_country_input(country_text)
+
+    if tag is None:
+        if err_type == "ambiguous" and extra:
+            # Show possible matches
+            suggestions = []
+            for t in extra[:15]:  # safety cap
+                suggestions.append(f"• **{pretty_country(t)}**")
+            more = ""
+            if len(extra) > 15:
+                more = f"\n…and {len(extra) - 15} more."
+            await message.reply(
+                "❓ That matches multiple countries:\n"
+                + "\n".join(suggestions)
+                + more
+                + "\n\nPlease type the **full country name** or its **3-letter tag**."
+            )
+        else:
+            await message.reply(
+                "❌ I couldn't find any country matching that.\n"
+                "Please type the **full country name** (e.g. `Hungary`) or its **tag** (e.g. `HUN`)."
+            )
+        return
+
+    # We now have a valid tag
+    country_name = countries[tag]["name"]
+
+    if config.get("locked", False):
+        await message.reply("🔒 Signups are locked.")
+        return
+
+    # Check if user already owns a country
+    current = None
+    for t, uid in reservations.items():
+        if uid == message.author.id:
+            current = t
+            break
+
+    # If they already have one and want another → swap
+    if current and current != tag:
+        current_name = countries.get(current, {}).get("name", current)
+        await message.reply(
+            f"⚠️ You already have **{pretty_country(current)}**.\n"
+            f"Type **YES** to swap to **{pretty_country(tag)}**, or **NO** to cancel."
+        )
+
+        def check(m: discord.Message):
+            return (
+                m.author.id == message.author.id
+                and m.channel.id == message.channel.id
+                and m.content.upper() in ["YES", "NO"]
+            )
+
+        try:
+            reply = await bot.wait_for("message", check=check, timeout=20)
+        except Exception:
+            await message.reply("⏳ Swap timed out.")
+            return
+
+        if reply.content.upper() == "NO":
+            await message.reply("❌ Swap canceled.")
+            return
+
+        # Perform swap
+        del reservations[current]
+        reservations[tag] = message.author.id
+        save_reservations()
+        await update_embed()
+        await log_action(
+            f"🔄 {message.author} swapped from **{pretty_country(current)}** "
+            f"to **{pretty_country(tag)}**"
+        )
+        await message.reply(f"✔️ Swapped to **{pretty_country(tag)}**.")
+        return
+
+    # If someone else owns it
+    if tag in reservations and reservations[tag] != message.author.id:
+        await message.reply("❌ That nation is already reserved.")
+        return
+
+    # Reserve fresh or re-affirm same tag
+    reservations[tag] = message.author.id
+    save_reservations()
+    await update_embed()
+    await log_action(f"🟢 {message.author} reserved **{pretty_country(tag)}**")
+    await message.reply(f"✔️ Reserved **{pretty_country(tag)}**.")
+
+
+async def handle_release_request(message: discord.Message, country_text: str):
+    """Core logic for releasing a country."""
+    tag, err_type, extra = resolve_country_input(country_text)
+
+    if tag is None:
+        # For release, we can be a bit more direct
+        await message.reply(
+            "❌ I couldn't figure out which country you meant.\n"
+            "Please use `RELEASE <TAG>` or `RELEASE <full name>`, e.g. `RELEASE HUN` or `RELEASE Hungary`."
+        )
+        return
+
+    if tag not in reservations:
+        await message.reply("❌ That nation is not reserved.")
+        return
+
+    if reservations[tag] != message.author.id:
+        await message.reply("❌ You do not control that nation.")
+        return
+
+    del reservations[tag]
+    save_reservations()
+    await update_embed()
+    await log_action(f"⚪ {message.author} released **{pretty_country(tag)}**")
+    await message.reply(f"✔️ Released **{pretty_country(tag)}**.")
+
+# -------------------------
 # USER MESSAGE HANDLER
 # -------------------------
 
 @bot.event
-async def on_message(message):
+async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    content = message.content.upper().strip()
+    raw = message.content.strip()
+    if not raw:
+        return
+
+    upper = raw.upper()
+    in_res_channel = (message.channel.id == CHANNEL_ID)
 
     # -------------------------
-    # RESERVE <TAG>
+    # Explicit commands: RESERVE / RELEASE (work in any channel)
     # -------------------------
-    if content.startswith("RESERVE "):
-        tag = content.replace("RESERVE ", "").strip()
+    if upper.startswith("RESERVE "):
+        country_text = raw[8:].strip()
+        await handle_reserve_request(message, country_text)
+        return
 
-        if tag not in countries:
-            await message.reply("❌ Invalid country tag.")
-            return
-
-        if config.get("locked", False):
-            await message.reply("🔒 Signups are locked.")
-            return
-
-        # Check if user already owns a country
-        current = None
-        for t, uid in reservations.items():
-            if uid == message.author.id:
-                current = t
-                break
-
-        # If they already have one and want another → swap
-        if current and current != tag:
-            await message.reply(
-                f"⚠️ You already have **{current}**.\n"
-                f"Type **YES** to swap to **{tag}**, or **NO** to cancel."
-            )
-
-            def check(m):
-                return (
-                    m.author.id == message.author.id
-                    and m.channel.id == message.channel.id
-                    and m.content.upper() in ["YES", "NO"]
-                )
-
-            try:
-                reply = await bot.wait_for("message", check=check, timeout=20)
-            except Exception:
-                await message.reply("⏳ Swap timed out.")
-                return
-
-            if reply.content.upper() == "NO":
-                await message.reply("❌ Swap canceled.")
-                return
-
-            del reservations[current]
-            reservations[tag] = message.author.id
-            save_reservations()
-            await update_embed()
-            await log_action(f"🔄 {message.author} swapped from **{current}** to **{tag}**")
-            await message.reply(f"✔️ Swapped to **{tag}**.")
-            return
-
-        # If someone else owns it
-        if tag in reservations and reservations[tag] != message.author.id:
-            await message.reply("❌ That nation is already reserved.")
-            return
-
-        # Reserve fresh
-        reservations[tag] = message.author.id
-        save_reservations()
-        await update_embed()
-        await log_action(f"🟢 {message.author} reserved **{tag}**")
-        await message.reply(f"✔️ Reserved **{tag}**.")
+    if upper.startswith("RELEASE "):
+        country_text = raw[8:].strip()
+        await handle_release_request(message, country_text)
         return
 
     # -------------------------
-    # RELEASE <TAG>
+    # Bare messages in the reservation channel:
+    # interpret as "reserve this" if not a bot command
     # -------------------------
-    if content.startswith("RELEASE "):
-        tag = content.replace("RELEASE ", "").strip()
-
-        if tag not in reservations:
-            await message.reply("❌ That nation is not reserved.")
-            return
-
-        if reservations[tag] != message.author.id:
-            await message.reply("❌ You do not control that nation.")
-            return
-
-        del reservations[tag]
-        save_reservations()
-        await update_embed()
-        await log_action(f"⚪ {message.author} released **{tag}**")
-        await message.reply(f"✔️ Released **{tag}**.")
+    if in_res_channel and not raw.startswith("!"):
+        # If they typed just a tag or name, treat as reserve attempt.
+        await handle_reserve_request(message, raw)
         return
 
+    # Let other bot commands run
     await bot.process_commands(message)
 
 # -------------------------
@@ -422,8 +603,8 @@ async def force(ctx, tag, user: discord.Member):
     reservations[tag] = user.id
     save_reservations()
     await update_embed()
-    await log_action(f"🛠️ Admin {ctx.author} forced **{tag}** to {user.mention}")
-    await ctx.reply(f"✔️ Forced {tag} to {user.mention}")
+    await log_action(f"🛠️ Admin {ctx.author} forced **{pretty_country(tag)}** to {user.mention}")
+    await ctx.reply(f"✔️ Forced {pretty_country(tag)} to {user.mention}")
 
 
 @bot.command()
@@ -434,8 +615,8 @@ async def unassign(ctx, tag):
         del reservations[tag]
         save_reservations()
         await update_embed()
-        await log_action(f"🛠️ Admin {ctx.author} unassigned **{tag}**")
-        await ctx.reply(f"✔️ Unassigned {tag}")
+        await log_action(f"🛠️ Admin {ctx.author} unassigned **{pretty_country(tag)}**")
+        await ctx.reply(f"✔️ Unassigned {pretty_country(tag)}")
     else:
         await ctx.reply("❌ Tag is not reserved.")
 
@@ -499,10 +680,8 @@ async def timezones(ctx):
     for code in sorted(TZ_CODE_MAP.keys()):
         lines.append(f"**{code}** → `{TZ_CODE_MAP[code]}`")
 
-    # Discord field length safety
     joined = "\n".join(lines)
     if len(joined) > 3800:
-        # Just in case, chunk it (unlikely with our small list)
         chunks = [joined[i:i+3800] for i in range(0, len(joined), 3800)]
         for i, c in enumerate(chunks, start=1):
             embed = discord.Embed(
