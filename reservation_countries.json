@@ -1,0 +1,73 @@
+{
+  "GER": { "name": "Germany", "flag": "🇩🇪", "region": "Europe" },
+  "ENG": { "name": "United Kingdom", "flag": "🇬🇧", "region": "Europe" },
+  "FRA": { "name": "France", "flag": "🇫🇷", "region": "Europe" },
+  "ITA": { "name": "Italy", "flag": "🇮🇹", "region": "Europe" },
+  "SOV": { "name": "Soviet Union", "flag": "🇷🇺", "region": "Europe" },
+
+  "BEL": { "name": "Belgium", "flag": "🇧🇪", "region": "Europe" },
+  "HOL": { "name": "Netherlands", "flag": "🇳🇱", "region": "Europe" },
+  "SWI": { "name": "Switzerland", "flag": "🇨🇭", "region": "Europe" },
+  "SWE": { "name": "Sweden", "flag": "🇸🇪", "region": "Europe" },
+  "DEN": { "name": "Denmark", "flag": "🇩🇰", "region": "Europe" },
+  "NOR": { "name": "Norway", "flag": "🇳🇴", "region": "Europe" },
+  "SPA": { "name": "Spain", "flag": "🇪🇸", "region": "Europe" },
+  "POR": { "name": "Portugal", "flag": "🇵🇹", "region": "Europe" },
+
+  "FIN": { "name": "Finland", "flag": "🇫🇮", "region": "Europe" },
+  "EST": { "name": "Estonia", "flag": "🇪🇪", "region": "Europe" },
+  "LAT": { "name": "Latvia", "flag": "🇱🇻", "region": "Europe" },
+  "LIT": { "name": "Lithuania", "flag": "🇱🇹", "region": "Europe" },
+  "HUN": { "name": "Hungary", "flag": "🇭🇺", "region": "Europe" },
+  "AUS": { "name": "Austria", "flag": "🇦🇹", "region": "Europe" },
+  "CZE": { "name": "Czechoslovakia", "flag": "🇨🇿", "region": "Europe" },
+
+  "YUG": { "name": "Yugoslavia", "flag": "🇷🇸", "region": "Europe" },
+  "GRE": { "name": "Greece", "flag": "🇬🇷", "region": "Europe" },
+  "ROM": { "name": "Romania", "flag": "🇷🇴", "region": "Europe" },
+  "BUL": { "name": "Bulgaria", "flag": "🇧🇬", "region": "Europe" },
+
+  "ICE": { "name": "Iceland", "flag": "🇮🇸", "region": "Europe" },
+  "IRE": { "name": "Ireland", "flag": "🇮🇪", "region": "Europe" },
+
+  "CHI": { "name": "Nationalist China", "flag": "🇨🇳", "region": "Asia" },
+  "PRC": { "name": "Communist China", "flag": "🇨🇳", "region": "Asia" },
+  "JAP": { "name": "Japan", "flag": "🇯🇵", "region": "Asia" },
+
+  "MAN": { "name": "Manchukuo", "flag": "🇨🇳", "region": "Asia" },
+  "MEN": { "name": "Mengkukuo", "flag": "🇨🇳", "region": "Asia" },
+  "MON": { "name": "Mongolia", "flag": "🇲🇳", "region": "Asia" },
+
+  "AST": { "name": "Australia", "flag": "🇦🇺", "region": "Asia" },
+  "NZL": { "name": "New Zealand", "flag": "🇳🇿", "region": "Asia" },
+  "RAJ": { "name": "India", "flag": "🇮🇳", "region": "Asia" },
+  "SIA": { "name": "Siam", "flag": "🇹🇭", "region": "Asia" },
+
+  "IRN": { "name": "Iran", "flag": "🇮🇷", "region": "MEA" },
+  "IRQ": { "name": "Iraq", "flag": "🇮🇶", "region": "MEA" },
+  "SAU": { "name": "Saudi Arabia", "flag": "🇸🇦", "region": "MEA" },
+  "AFG": { "name": "Afghanistan", "flag": "🇦🇫", "region": "MEA" },
+  "ETH": { "name": "Ethiopia", "flag": "🇪🇹", "region": "MEA" },
+  "OMA": { "name": "Oman", "flag": "🇴🇲", "region": "MEA" },
+  "YEM": { "name": "Yemen", "flag": "🇾🇪", "region": "MEA" },
+
+  "CAN": { "name": "Canada", "flag": "🇨🇦", "region": "NA" },
+  "USA": { "name": "United States", "flag": "🇺🇸", "region": "NA" },
+  "MEX": { "name": "Mexico", "flag": "🇲🇽", "region": "NA" },
+
+  "CUB": { "name": "Cuba", "flag": "🇨🇺", "region": "NA" },
+  "DOM": { "name": "Dominican Republic", "flag": "🇩🇴", "region": "NA" },
+  "HAI": { "name": "Haiti", "flag": "🇭🇹", "region": "NA" },
+  "PAN": { "name": "Panama", "flag": "🇵🇦", "region": "NA" },
+
+  "ARG": { "name": "Argentina", "flag": "🇦🇷", "region": "SA" },
+  "BRA": { "name": "Brazil", "flag": "🇧🇷", "region": "SA" },
+  "CHL": { "name": "Chile", "flag": "🇨🇱", "region": "SA" },
+  "PAR": { "name": "Paraguay", "flag": "🇵🇾", "region": "SA" },
+  "URU": { "name": "Uruguay", "flag": "🇺🇾", "region": "SA" },
+  "BOL": { "name": "Bolivia", "flag": "🇧🇴", "region": "SA" },
+  "PRU": { "name": "Peru", "flag": "🇵🇪", "region": "SA" },
+  "ECU": { "name": "Ecuador", "flag": "🇪🇨", "region": "SA" },
+  "COL": { "name": "Colombia", "flag": "🇨🇴", "region": "SA" },
+  "VEN": { "name": "Venezuela", "flag": "🇻🇪", "region": "SA" }
+}
