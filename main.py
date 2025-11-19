@@ -197,6 +197,11 @@ def build_embed():
         description=(
             f"{status}\n\n"
             "Type a country name or tag.\n"
+            "• **RESERVE <TAG or NAME>** — Claim a country\n"
+            "• **RELEASE <TAG or NAME>** — Free your country\n"
+            "**⚙️ Admin Commands (summary):**\n"
+            "• `!setreset HH:MM TZZ` — Set daily reset time (e.g. `!setreset 21:00 EST`)\n"
+            "• `!timezones` — Show supported timezone codes\n\n"            
             "All messages auto-delete after 5 seconds.\n\n"
             f"{reset_line}"
         ),
