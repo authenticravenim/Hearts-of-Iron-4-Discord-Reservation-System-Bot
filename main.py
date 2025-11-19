@@ -1,43 +1,52 @@
-# ============================
-# HOI4 RESERVATION BOT
-# Silent Mode + Daily Reset + One-Time Reset (Daily Reset Pause)
-# Fully Updated for Wispbyte (.env)
-# ============================
+# ============================================
+# HOI4 RESERVATION BOT (FINAL VERSION)
+# Silent Mode + Auto-Delete + Daily Reset + One-Time Reset
+# MUTUAL EXCLUSIVITY PATCH FULLY APPLIED
+# Optional Startup Reset Enabled by Default
+# Wispbyte-Compatible (.env)
+# ============================================
 
 import discord
 from discord.ext import commands, tasks
 import json
 import os
 import re
+import asyncio
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-
-# Load .env (required for Wispbyte)
 from dotenv import load_dotenv
+
+# Load .env
 load_dotenv()
 
-# -------------------------
-# CONFIGURATION FILES
-# -------------------------
+
+# ==============================================================
+# FILE PATHS
+# ==============================================================
 
 COUNTRY_FILE = "reservation_countries.json"
 RESERVATION_FILE = "reservations.json"
 CONFIG_FILE = "config.json"
 ALL_TAGS_FILE = "all_tags.json"
 
-CHANNEL_ID = 1440496073377579120      # Reservation channel
-LOG_CHANNEL_ID = 1440253011678199882  # Log channel
-DELETE_DELAY = 5                      # Auto-delete delay
+CHANNEL_ID = 1440496073377579120       # Reservation channel
+LOG_CHANNEL_ID = 1440253011678199882   # Log channel
+DELETE_DELAY = 5
 
-# Discord intents
+
+# ==============================================================
+# DISCORD SETUP
+# ==============================================================
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# -------------------------
+
+# ==============================================================
 # TIMEZONE MAP
-# -------------------------
+# ==============================================================
 
 TZ_CODE_MAP = {
     "UTC": "UTC",
@@ -62,17 +71,19 @@ TZ_CODE_MAP = {
     "AEDT": "Australia/Sydney",
 }
 
-# -------------------------
-# LOAD TOKEN
-# -------------------------
+
+# ==============================================================
+# TOKEN LOAD
+# ==============================================================
 
 TOKEN = os.getenv("BOT_TOKEN")
 if TOKEN is None:
-    raise RuntimeError("BOT_TOKEN not found in environment (.env file missing?)")
+    raise RuntimeError("BOT_TOKEN missing in .env")
 
-# -------------------------
-# JSON LOADING
-# -------------------------
+
+# ==============================================================
+# JSON LOAD/SAVE HELPERS
+# ==============================================================
 
 def load_json(fp, default):
     if not os.path.exists(fp) or os.path.getsize(fp) == 0:
@@ -87,22 +98,30 @@ def load_json(fp, default):
             json.dump(default, f, indent=4)
         return default
 
+
 reservations = load_json(RESERVATION_FILE, {})
 config = load_json(CONFIG_FILE, {})
 countries = load_json(COUNTRY_FILE, {})
 all_tags = load_json(ALL_TAGS_FILE, {})
 
+# Create startup reset flag if missing
+if "startup_reset" not in config:
+    config["startup_reset"] = True
+
+
 def save_reservations():
     with open(RESERVATION_FILE, "w", encoding="utf-8") as f:
         json.dump(reservations, f, indent=4)
+
 
 def save_config():
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=4)
 
-# -------------------------
-# NAME RESOLUTION SYSTEM
-# -------------------------
+
+# ==============================================================
+# NAME RESOLUTION
+# ==============================================================
 
 name_index = {}
 
@@ -111,32 +130,25 @@ def _normalize(s):
     return re.sub(r"\s+", " ", s)
 
 def _add_name(tag, name):
-    if not name:
-        return
-    n = _normalize(name)
-    if n not in name_index:
-        name_index[n] = set()
-    name_index[n].add(tag)
+    if name:
+        name_index.setdefault(_normalize(name), set()).add(tag)
 
 def build_name_index():
     name_index.clear()
-
     for tag, data in countries.items():
         _add_name(tag, data.get("name", ""))
 
     for tag, data in all_tags.items():
-        if tag not in countries:
-            continue
-        _add_name(tag, data.get("democratic", ""))
-        _add_name(tag, data.get("neutral", ""))
+        if tag in countries:
+            _add_name(tag, data.get("democratic"))
+            _add_name(tag, data.get("neutral"))
 
     aliases = {
         "uk": "ENG",
-        "britain": "ENG",
         "england": "ENG",
+        "britain": "ENG",
         "usa": "USA",
         "united states": "USA",
-        "united states of america": "USA",
     }
     for name, tag in aliases.items():
         if tag in countries:
@@ -144,7 +156,7 @@ def build_name_index():
 
 build_name_index()
 
-def resolve_country_input(inp: str):
+def resolve_country_input(inp):
     if not inp:
         return None, "not_found", None
 
@@ -168,16 +180,17 @@ def resolve_country_input(inp: str):
 
     if len(possible) == 1:
         return list(possible)[0], None, None
-    elif len(possible) > 1:
+    if possible:
         return None, "ambiguous", list(possible)
     return None, "not_found", None
 
 def pretty(tag):
     return f"{tag} — {countries[tag]['name']}"
 
-# -------------------------
-# LOGGING
-# -------------------------
+
+# ==============================================================
+# LOG
+# ==============================================================
 
 async def log_action(text):
     chan = bot.get_channel(LOG_CHANNEL_ID)
@@ -187,46 +200,48 @@ async def log_action(text):
         except:
             pass
 
-# -------------------------
-# EMBED
-# -------------------------
+
+# ==============================================================
+# EMBED BUILDER WITH MUTUAL EXCLUSIVITY
+# ==============================================================
 
 def build_embed():
     locked = config.get("locked", False)
     status = "🔒 **Signups Locked**" if locked else "🔓 **Signups Open**"
 
-    reset_time = config.get("reset_time")
-    reset_tz = config.get("reset_tz_code", "")
-    if reset_time and reset_tz:
-        daily_reset_line = f"• Daily reset at **{reset_time} {reset_tz}**"
+    # Reset display logic (exclusive)
+    one_date = config.get("reset_once_date")
+    one_time = config.get("reset_once_time")
+    one_tz = config.get("reset_once_tz_code")
+
+    daily_time = config.get("reset_time")
+    daily_tz = config.get("reset_tz_code")
+
+    if one_date and one_time and one_tz:
+        reset_line = f"• One-time reset on **{one_date} at {one_time} {one_tz}**"
+    elif daily_time and daily_tz:
+        reset_line = f"• Daily reset at **{daily_time} {daily_tz}**"
     else:
-        daily_reset_line = "• Daily reset not configured"
+        reset_line = "• No reset configured"
 
     embed = discord.Embed(
         title="🌍 Country Reservations",
         description=(
             f"{status}\n\n"
-            "Type a country name or tag.\n"
+            "Type any country name or tag.\n"
+            "To release a nation type 'Release TAG'.\n"
+            "Ensure the country code is correct.\n"
             "All messages auto-delete after 5 seconds.\n\n"
-            "**⚙️ Admin Commands (summary):**\n"
-            "• `!setreset HH:MM TZZ` — Set daily reset time\n"
-            "• `!setresetdate YYYY-MM-DD HH:MM TZZ` — One-time reset\n"
-            "• `!timezones` — Show supported timezone codes\n\n"
-            f"{daily_reset_line}"
+            "**Admin Commands:**\n"
+            "• `!setreset HH:MM TZZ`\n"
+            "• `!setresetdate YYYY-MM-DD HH:MM TZZ`\n"
+            "• `!timezones`\n\n"
+            f"{reset_line}"
         ),
         color=0x2b2d31,
     )
 
-    # One-time reset line
-    if config.get("reset_once_date"):
-        embed.description += (
-            f"\n• One-time reset on **{config['reset_once_date']} "
-            f"at {config['reset_once_time']} {config['reset_once_tz_code']}**"
-        )
-
-    # Regions
-    regions = ["Europe", "Asia", "MEA", "NA", "SA"]
-    for region in regions:
+    for region in ["Europe", "Asia", "MEA", "NA", "SA"]:
         lines = []
         for tag, data in countries.items():
             if data["region"] != region:
@@ -241,6 +256,7 @@ def build_embed():
         embed.add_field(name=f"__{region}__", value="\n".join(lines), inline=False)
 
     return embed
+
 
 async def update_embed():
     channel = bot.get_channel(CHANNEL_ID)
@@ -260,19 +276,33 @@ async def update_embed():
     config["embed_message_id"] = msg.id
     save_config()
 
-# -------------------------
-# BOT READY
-# -------------------------
+
+# ==============================================================
+# BOT READY — OPTIONAL STARTUP RESET
+# ==============================================================
 
 @bot.event
 async def on_ready():
-    print(f"Bot is online as {bot.user}")
-    await update_embed()
+    print(f"Bot online as {bot.user}")
+
+    if config.get("startup_reset", True):
+        reservations.clear()
+        save_reservations()
+
+        config["embed_message_id"] = None
+        save_config()
+
+        await update_embed()
+        await log_action("🔄 Startup reset — reservation list wiped.")
+    else:
+        await update_embed()
+
     reset_watcher.start()
 
-# -------------------------
-# DAILY + ONE-TIME RESET SYSTEM
-# -------------------------
+
+# ==============================================================
+# RESET SCHEDULER
+# ==============================================================
 
 def check_daily_reset():
     rt = config.get("reset_time")
@@ -296,49 +326,51 @@ def check_daily_reset():
         return True, today
     return False, None
 
+
 @tasks.loop(minutes=1)
 async def reset_watcher():
-    # ----------------------
-    # Daily Reset (PAUSED if one-time reset is pending)
-    # ----------------------
+
+    # DAILY RESET (only if not paused by one-time reset)
     if not config.get("daily_paused", False):
         do_reset, today = check_daily_reset()
         if do_reset:
             reservations.clear()
             save_reservations()
             await update_embed()
+            await asyncio.sleep(5)
+            await update_embed()
             await log_action("🗑️ Daily reset complete.")
             config["last_reset_date"] = today
             save_config()
 
-    # ----------------------
-    # One-Time Reset
-    # ----------------------
+    # ONE-TIME RESET
     date_str = config.get("reset_once_date")
     time_str = config.get("reset_once_time")
     tz_name = config.get("reset_once_tz")
 
     if date_str and time_str and tz_name:
         try:
-            year, month, day = map(int, date_str.split("-"))
+            y, mo, d = map(int, date_str.split("-"))
             h, m = map(int, time_str.split(":"))
             zone = ZoneInfo(tz_name)
         except:
             return
 
         now = datetime.now(timezone.utc).astimezone(zone)
-        target = datetime(year, month, day, h, m, tzinfo=zone)
+        target = datetime(y, mo, d, h, m, tzinfo=zone)
 
         if now >= target:
-            # Execute reset
             reservations.clear()
             save_reservations()
             await update_embed()
+            await asyncio.sleep(5)
+            await update_embed()
+
             await log_action(
-                f"🗑️ One-time reset executed for {date_str} at {time_str} {config['reset_once_tz_code']}"
+                f"🗑️ One-time reset executed for {date_str} at {time_str}"
             )
 
-            # Remove scheduled reset + unpause daily reset
+            # Remove scheduled reset & unpause daily
             config["reset_once_date"] = None
             config["reset_once_time"] = None
             config["reset_once_tz"] = None
@@ -346,26 +378,27 @@ async def reset_watcher():
             config["daily_paused"] = False
             save_config()
 
-# -------------------------
-# RESERVATION LOGIC
-# -------------------------
+
+# ==============================================================
+# RESERVATION HANDLING
+# ==============================================================
 
 async def handle_reserve(message, text):
     tag, err, extra = resolve_country_input(text)
     if tag is None:
-        return  # silent
+        return
 
     if config.get("locked", False):
-        return  # silent
+        return
 
-    # User already owns something?
+    # Check if user already has a country
     current = None
     for t, uid in reservations.items():
         if uid == message.author.id:
             current = t
             break
 
-    # Swap attempt
+    # Swap
     if current and current != tag:
         if tag in reservations and reservations[tag] != message.author.id:
             return
@@ -376,15 +409,15 @@ async def handle_reserve(message, text):
         await log_action(f"🔄 {message.author} swapped {pretty(current)} → {pretty(tag)}")
         return
 
-    # Already taken
+    # Already taken by someone else
     if tag in reservations and reservations[tag] != message.author.id:
         return
 
-    # New reservation
     reservations[tag] = message.author.id
     save_reservations()
     await update_embed()
     await log_action(f"🟢 {message.author} reserved {pretty(tag)}")
+
 
 async def handle_release(message, text):
     tag, err, extra = resolve_country_input(text)
@@ -400,9 +433,10 @@ async def handle_release(message, text):
     await update_embed()
     await log_action(f"⚪ {message.author} released {pretty(tag)}")
 
-# -------------------------
-# MESSAGE HANDLER (Silent Mode)
-# -------------------------
+
+# ==============================================================
+# SILENT MODE MESSAGE FILTER
+# ==============================================================
 
 @bot.event
 async def on_message(message):
@@ -434,19 +468,18 @@ async def on_message(message):
         except: pass
         return
 
-    # Admin commands inside reservation channel → delete after 5 sec
     if in_res and raw.startswith("!"):
         await bot.process_commands(message)
         try: await message.delete(delay=DELETE_DELAY)
         except: pass
         return
 
-    # Admin commands elsewhere
     await bot.process_commands(message)
 
-# -------------------------
+
+# ==============================================================
 # ADMIN COMMANDS
-# -------------------------
+# ==============================================================
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -487,6 +520,7 @@ async def unassign(ctx, tag):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setreset(ctx, time_str, tz_code):
+    # Daily reset (exclusive)
     try:
         h, m = map(int, time_str.split(":"))
     except:
@@ -496,12 +530,20 @@ async def setreset(ctx, time_str, tz_code):
     if tz_code not in TZ_CODE_MAP:
         return
 
+    # Enable daily reset
     config["reset_time"] = time_str
     config["reset_tz"] = TZ_CODE_MAP[tz_code]
     config["reset_tz_code"] = tz_code
     config["last_reset_date"] = None
-    save_config()
 
+    # **Mutual exclusivity:** Remove one-time reset immediately
+    config["reset_once_date"] = None
+    config["reset_once_time"] = None
+    config["reset_once_tz"] = None
+    config["reset_once_tz_code"] = None
+    config["daily_paused"] = False
+
+    save_config()
     await update_embed()
     await log_action(f"⏰ Daily reset set to {time_str} {tz_code}")
 
@@ -513,14 +555,13 @@ async def timezones(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setresetdate(ctx, date_str, time_str, tz_code):
-    # Validate date
+    # One-time reset (exclusive)
     try:
         y, mo, d = map(int, date_str.split("-"))
         _ = datetime(y, mo, d)
     except:
         return
 
-    # Validate time
     try:
         h, m = map(int, time_str.split(":"))
     except:
@@ -530,22 +571,27 @@ async def setresetdate(ctx, date_str, time_str, tz_code):
     if tz_code not in TZ_CODE_MAP:
         return
 
+    # Set one-time reset
     config["reset_once_date"] = date_str
     config["reset_once_time"] = time_str
     config["reset_once_tz"] = TZ_CODE_MAP[tz_code]
     config["reset_once_tz_code"] = tz_code
 
-    config["daily_paused"] = True      # ⭐ Pause daily reset
+    # Pause daily reset
+    config["daily_paused"] = True
+
+    # **Mutual exclusivity:** remove daily reset settings immediately
+    config["reset_time"] = None
+    config["reset_tz"] = None
+    config["reset_tz_code"] = None
+    config["last_reset_date"] = None
 
     save_config()
-
     await update_embed()
-    await log_action(
-        f"📅 One-time reset scheduled for {date_str} at {time_str} {tz_code}"
-    )
+    await log_action(f"📅 One-time reset scheduled for {date_str} at {time_str} {tz_code}")
 
-# -------------------------
-# RUN
-# -------------------------
+# ==============================================================
+# RUN BOT
+# ==============================================================
 
 bot.run(TOKEN)
