@@ -1,148 +1,92 @@
-📘 HOI4 Reservation Bot — README / HELP FILE
-
-This bot manages country reservations for HOI4 multiplayer games.
-The reservation channel stays completely clean — only the embed is visible.
-All user messages in the reservation channel are deleted automatically after 5 seconds.
-
-⭐ How It Works (For Players)
-1. Reserving a country
-
-Just type the country name or tag in the reservation channel:
-
-hungary
-germany
-usa
-HUN
-GER
-USA
-
-
-If the country is available, your name will appear beside it in the embed.
-
-No confirmation message appears (silent mode).
-Check the embed to see your reservation.
-
-2. Releasing a country
-
-Use the release command:
-
-release hungary
-release HUN
-
-
-The country becomes unassigned again.
-
-3. Changing countries (swap)
-
-If you already own a country and try to reserve a different one:
-
-If the target is free, your old country is released.
-
-If the target is taken, the swap is blocked silently.
-
-⭐ How It Works (For Admins)
-
-Admins can use the following commands in any channel, BUT if they use them in the reservation channel, the messages will still auto-delete (silent mode).
-
-Lock signups
-!lock
-
-
-Prevents new reservations.
-Players with existing reservations keep them.
-
-Unlock signups
-!unlock
-
-
-Allows reservations again.
-
-Force assign a country to a player
-!force GER @player
-
-
-Gives the country directly to that player.
-
-Unassign a country
-!unassign GER
-
-
-Removes the reservation from that country.
-
-Set daily reset time
-!setreset HH:MM TZ
-
-
-Examples:
-
-!setreset 05:00 EST
-!setreset 12:00 UTC
-!setreset 18:30 CET
-
-Show available timezones
-!timezones
-
-⭐ Daily Reset System
-
-The bot can automatically clear all reservations once per day.
-
-After the reset:
-
-All countries become unclaimed
-
-The embed updates
-
-A log entry is posted in the reservation logs channel
-
-⭐ Silent Mode Behavior
-
-The reservation channel is silent:
-
-No bot replies
-
-No DM messages
-
-No errors shown
-
-No admin command messages shown
-
-User messages auto-delete after 5 seconds
-
-Admin commands auto-delete after 5 seconds
-
-Only the embed stays permanently
-
-This prevents clutter and keeps the channel clean.
-
-⭐ Logging System
-
-All important actions are sent to the log channel:
-
-Reservations
-
-Releases
-
-Swaps
-
-Forced assignments
-
-Unassigns
-
-Daily resets
-
-Nothing appears in the reservation channel.
-
-⭐ File Overview
-File	Description
-main.py	Main bot code
-reservations.json	Stores current reservations
-config.json	Stores bot settings (embed ID, reset time, etc.)
-reservation_countries.json	Country list + flags + regions
-all_tags.json	Extra HOI4 alternate name mappings
-⭐ Notes
-
-The reservation channel must allow the bot to delete messages.
-
-The log channel must allow the bot to post messages.
-
-Admin commands require the Administrator permission.
+===========================================
+HOI4 RESERVATION BOT — HELP & COMMANDS
+===========================================
+
+GENERAL USAGE
+-------------
+• Type any country name or tag directly into the reservation channel.
+• All messages auto-delete after 5 seconds.
+• The bot silently updates the reservation list.
+• The reservation embed always shows the live status.
+• Logs for all actions are posted in the reservation-log channel.
+
+USER COMMANDS
+-------------
+(You do NOT need to use commands for normal reservations.)
+
+Reserve a country:
+  Simply type the country name or tag.
+  Example: germany   OR   GER
+
+Release a country:
+  "release germany"
+  OR
+  "release GER"
+
+Swap countries:
+  Type a new country name or tag.
+  The bot will automatically release your old nation
+  and assign you the new one, as long as it is free.
+
+ADMIN COMMANDS
+--------------
+
+Lock or unlock signups:
+  !lock
+  !unlock
+
+Force assign a country:
+  !force TAG @user
+  Example: !force FRA @John
+
+Unassign a country:
+  !unassign TAG
+  Example: !unassign USA
+
+Set a DAILY reset:
+  !setreset HH:MM TZZ
+  Example: !setreset 21:00 EST
+
+• Daily resets occur EVERY day at the specified time.
+• Resets clear all claimed countries.
+• The next daily reset only happens if no one-time reset is active.
+
+Set a ONE-TIME reset:
+  !setresetdate YYYY-MM-DD HH:MM TZZ
+  Example: !setresetdate 2025-02-10 18:00 PST
+
+• The one-time reset will occur ONCE at the exact date and time.
+• Daily reset is automatically PAUSED while a one-time reset is pending.
+• When the one-time reset executes:
+    - All reservations are wiped
+    - The daily reset is automatically unpaused
+    - The one-time reset is cleared from config
+
+List supported timezones:
+  !timezones
+
+
+SILENT MODE
+-----------
+• No messages appear in the reservation channel except the embed.
+• All user/admin inputs are deleted after 5 seconds.
+• Confirmation messages are NOT sent in the channel.
+• All actions are logged privately in the reservation-log channel.
+
+LOGGING
+-------
+Every important action is logged:
+  • Reservations
+  • Releases
+  • Swaps
+  • Forced assignments
+  • Daily resets
+  • One-time reset scheduling
+  • One-time reset execution
+
+NOTES
+-----
+• Only one country can be held at a time.
+• The bot prevents stealing another user's country.
+• Country names and tags are flexible and accept partial matches.
+• If multiple countries match a name, the bot silently ignores it.
